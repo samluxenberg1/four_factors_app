@@ -1,5 +1,3 @@
-import os
-from four_factors_app import definitions
 import statsmodels.api as sm
 import pandas as pd
 
