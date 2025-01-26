@@ -1,0 +1,178 @@
+import os
+import sys
+from pathlib import Path
+
+# Add root directory to sys.path before importing your modules
+root_dir = Path(__file__).resolve().parent.parent.parent
+sys.path.append(str(root_dir))
+print(f"Root Directory: {root_dir}")
+
+from src import data_processing
+from src.utils import config_widgets
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+from scipy.stats import pearsonr
+
+import streamlit as st
+
+st.write(
+    """
+    # Exploratory Data Analysis 
+    Exploratory data analysis (EDA) is useful in data science projects for multiple reasons. 
+    - It allows the data scientist to get an understanding of the general distributions in the data. 
+    - It can inform which parts of the data need more consideration (e.g., outliers, missing values).
+    - It can answer questions on how to approach modeling.
+    
+    For a predictive modeling project, EDA should technically be done only on training data, as we don't want any
+    biases sneaking into our testing data and analysis. 
+    
+    For more of a classical statistical inference perspective, where we are particularly interested in inference and 
+    understanding the relationships between our variables, there is not always the need to split data between 
+    training and testing. Nonetheless, EDA is still a critical component of such a project.   
+    """
+)
+
+df = st.session_state["data"]
+
+# Process Data
+X1_diff, y, y2 = data_processing.processing(df=df)
+df = pd.concat([df, X1_diff.drop('const', axis=1)], axis=1)
+
+teams = ['All'] + list(df['TEAM_NAME'].unique())
+seasons = ['All'] + list(df['season'].unique())
+min_season = int(df['season'].min())
+max_season = int(df['season'].max())
+
+# Sidebar Widgets
+selected_target = st.sidebar.selectbox("Choose your target (i.e. response) variable.",
+                               ("Wins", "Win %"),
+                               index=None,
+                               placeholder="Select target variable..."
+                               )
+if selected_target == "Wins":
+    target = "W"
+else:
+    target = "W_PCT"
+
+# Inline Widgets
+# Fig 1 - Plot Four Factors Over Time w.r.t. League Average
+# selected_teams_fig1 = st.sidebar.multiselect("Select Teams", options=teams, default='All')
+# selected_seasons_fig1 = st.sidebar.slider("Select Seasons", min_value=min_season, max_value=max_season,
+#                                      value=(min_season, max_season))
+#
+# if 'All' in selected_teams_fig1:
+#     filtered_teams_fig1 = df['TEAM_NAME'].unique()
+# else:
+#     filtered_teams_fig1 = selected_teams_fig1
+#
+# filtered_df_fig1 = df[
+#     (df['TEAM_NAME'].isin(filtered_teams_fig1)) & (df['season'].between(
+#         selected_seasons_fig1[0],
+#         selected_seasons_fig1[1]
+#     ))]
+filtered_df_fig1, selected_teams_fig1, selected_seasons_fig1 = config_widgets(
+    df=df,
+    min_season=min_season,
+    max_season=max_season,
+    teams=teams
+)
+
+
+
+# EDA Plots
+st.write(f"## Team Factors Over Time")
+feature_columns = X1_diff.drop('const', axis=1).columns.tolist()
+orig_factors = ['EFG_PCT', 'FTA_RATE', 'TM_TOV_PCT', 'OREB_PCT']
+fig0, ax0 = plt.subplots(2, 2, figsize=(14, 14))
+ax0 = ax0.ravel()
+
+for idx, feature in enumerate(orig_factors):
+    ax = ax0[idx]
+
+    # Compute League Average by Season Using Filtered data
+    league_avg = df.groupby('season')[feature].agg('mean').reset_index()
+    filtered_league_avg = league_avg[league_avg['season'].between(selected_seasons_fig1[0], selected_seasons_fig1[1])]
+
+    # Plot scatter plot for each selected team in filtered data
+    for team in filtered_df_fig1['TEAM_NAME'].unique():
+        team_df = filtered_df_fig1[filtered_df_fig1['TEAM_NAME'] == team]
+        if filtered_df_fig1['TEAM_NAME'].nunique() > 4:
+            sns.scatterplot(x=team_df['season'], y=team_df[feature], ax=ax, color='gray', alpha=.5)
+        else:
+            sns.scatterplot(x=team_df['season'], y=team_df[feature], ax=ax, label=f"{team}", alpha=.5)
+
+    # Plot line for league average
+    sns.lineplot(x=filtered_league_avg['season'].unique(), y=filtered_league_avg[feature], ax=ax, label='League Avg',
+                 color='red')
+
+    ax.set_title(f"{feature} Over Seasons")
+    ax.set_xlabel("Season")
+    ax.set_xticks(filtered_league_avg['season'])
+    ax.set_xticklabels(filtered_league_avg['season'].astype(int), rotation=45)
+
+    ax.set_ylabel(feature)
+    ax.legend(loc='best')
+
+st.pyplot(fig0)
+
+
+# Pair Plot with Correlation
+# Fig 2 - Pair plots w/ Correlation
+filtered_df_fig2, selected_teams_fig2, selected_seasons_fig2 = config_widgets(
+    df=df,
+    min_season=2002,
+    max_season=2024,
+    teams=teams
+)
+def reg_coef(x, y, label=None, color=None, **kwargs):
+    ax = plt.gca()
+    r, p = pearsonr(x, y)
+    ax.annotate(f'r = {r:.2f}', xy=(.5, .5), xycoords='axes fraction', ha='center')
+    ax.set_axis_off()
+
+
+df_ff = filtered_df_fig2[orig_factors + [target]]
+g = sns.PairGrid(df_ff)
+g.map_diag(sns.histplot, kde=True)
+g.map_lower(sns.regplot, scatter_kws={'alpha': .25})
+g.map_upper(reg_coef)
+st.pyplot(g.figure)
+
+# Correlation Over Time
+# Fig 2 - Pair plots w/ Correlation
+filtered_df_fig3, selected_teams_fig3, selected_seasons_fig3 = config_widgets(
+    df=df,
+    min_season=2002,
+    max_season=2024,
+    teams=teams
+)
+corr_data = []
+for s in filtered_df_fig3['season'].unique():
+    # Filter data for specific season
+    df_season = filtered_df_fig3[filtered_df_fig3['season']==s]
+
+    # Compute correlations for each factor with target
+    corr_vals = [pearsonr(df_season[factor], df_season[target])[0] for factor in orig_factors]
+
+    # Append results as a dictionary
+    corr_data.append(
+        {'season': s, **{factor: r for factor, r in zip(orig_factors, corr_vals)}}
+    )
+
+# Convert the list of dictionaries into a dataframe
+df_time_corr = pd.DataFrame(corr_data)
+df_time_corr = df_time_corr[['season']+orig_factors]
+
+fig_corr, ax_corr = plt.subplots(figsize=(15,7))
+sns.lineplot(x='season', y=orig_factors[0], data=df_time_corr, label=orig_factors[0], ax=ax_corr, alpha=.75)
+sns.lineplot(x='season', y=orig_factors[1], data=df_time_corr, label=orig_factors[1], ax=ax_corr, alpha=.75)
+sns.lineplot(x='season', y=orig_factors[2], data=df_time_corr, label=orig_factors[2], ax=ax_corr, alpha=.75)
+sns.lineplot(x='season', y=orig_factors[3], data=df_time_corr, label=orig_factors[3], ax=ax_corr, alpha=.75)
+ax_corr.set_ylim(-1,1)
+ax_corr.set_title('Team Factor Correlation Over Time')
+ax_corr.set_xlabel('Season')
+ax_corr.set_ylabel('Pearson Correlation')
+st.pyplot(fig_corr)
+
+
