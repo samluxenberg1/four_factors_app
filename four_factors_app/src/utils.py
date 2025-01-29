@@ -15,7 +15,12 @@ def load_data():
 
 def config_widgets(df: pd.DataFrame, min_season, max_season, teams):
     selected_teams = st.multiselect("Select Teams", options=teams, default='All')
-    selected_seasons = st.slider("Select Seasons", min_season, max_season,(min_season, max_season))
+    selected_seasons = st.slider(
+        "Select Seasons",
+        min_value=min_season,
+        max_value=max_season,
+        value=(min_season, max_season)
+    )
     if "All" in selected_teams:
         filtered_teams = df['TEAM_NAME'].unique()
     else:

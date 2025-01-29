@@ -8,7 +8,7 @@ sys.path.append(str(root_dir))
 print(f"Root Directory: {root_dir}")
 
 from src import data_processing
-from src.utils import config_widgets
+#from src.utils import config_widgets
 import pandas as pd
 import matplotlib.pyplot as plt
 import seaborn as sns
@@ -32,7 +32,25 @@ st.write(
     training and testing. Nonetheless, EDA is still a critical component of such a project.   
     """
 )
+def config_widgets(df: pd.DataFrame, min_season, max_season, teams, key):
+    selected_teams = st.multiselect("Select Teams", options=teams, default='All', key=f'team_select{key}')
+    selected_seasons = st.slider(
+        "Select Seasons",
+        min_value=min_season,
+        max_value=max_season,
+        value=(min_season, max_season),
+        key=f'season_select{key}'
+    )
+    if "All" in selected_teams:
+        filtered_teams = df['TEAM_NAME'].unique()
+    else:
+        filtered_teams = selected_teams
 
+    filtered_df = df[(df['TEAM_NAME'].isin(filtered_teams)) & (df['season'].between(
+        selected_seasons[0], selected_seasons[1]
+    ))]
+
+    return filtered_df, selected_teams, selected_seasons
 df = st.session_state["data"]
 
 # Process Data
@@ -47,7 +65,7 @@ max_season = int(df['season'].max())
 # Sidebar Widgets
 selected_target = st.sidebar.selectbox("Choose your target (i.e. response) variable.",
                                ("Wins", "Win %"),
-                               index=None,
+                               index=1,
                                placeholder="Select target variable..."
                                )
 if selected_target == "Wins":
@@ -71,17 +89,27 @@ else:
 #         selected_seasons_fig1[0],
 #         selected_seasons_fig1[1]
 #     ))]
+st.write(f"## Team Factors Over Time")
+st.write(
+    """
+    These graphs depict the trends in team offensive factors from season to season relative to the league average. By 
+    filtering for specific teams, we can see how that team has performed historically relative to league average. That 
+    could potentially provide insights into how team performance waxed or waned historically. With this information in 
+    hand, we might begin to ask deeper and more important questions about why team factors changed over time:
+     - Was it due to the acquisition of a specific player? 
+     - Was it due to league-wide trends? 
+     - Was it due to changes in the coaching staff?
+     - Was it due to changes in league rules?      
+    """
+)
 filtered_df_fig1, selected_teams_fig1, selected_seasons_fig1 = config_widgets(
     df=df,
     min_season=min_season,
     max_season=max_season,
-    teams=teams
+    teams=teams,
+    key=1
 )
 
-
-
-# EDA Plots
-st.write(f"## Team Factors Over Time")
 feature_columns = X1_diff.drop('const', axis=1).columns.tolist()
 orig_factors = ['EFG_PCT', 'FTA_RATE', 'TM_TOV_PCT', 'OREB_PCT']
 fig0, ax0 = plt.subplots(2, 2, figsize=(14, 14))
@@ -119,11 +147,21 @@ st.pyplot(fig0)
 
 # Pair Plot with Correlation
 # Fig 2 - Pair plots w/ Correlation
+st.write(f"## Bivariate and Univariate Distributions Among Team Factors and {selected_target}")
+st.write(
+    f"""
+    There are multiple aspects to this figure. Along the diagonal, we see the distributions of each factor and the 
+    {selected_target}. Below the diagonal, we have the relationship between each factor and the {selected_target}. 
+    These plots include a fitted linear regression line that may indicate the directionality and magnitude of the 
+    bivariate relationships. Above the diagonal, we have all pearson (linear) correlations for pair of variables. 
+    """
+)
 filtered_df_fig2, selected_teams_fig2, selected_seasons_fig2 = config_widgets(
     df=df,
     min_season=2002,
     max_season=2024,
-    teams=teams
+    teams=teams,
+    key=2
 )
 def reg_coef(x, y, label=None, color=None, **kwargs):
     ax = plt.gca()
@@ -133,19 +171,29 @@ def reg_coef(x, y, label=None, color=None, **kwargs):
 
 
 df_ff = filtered_df_fig2[orig_factors + [target]]
-g = sns.PairGrid(df_ff)
+g = sns.PairGrid(df_ff, height=2.25, aspect=1.35)
 g.map_diag(sns.histplot, kde=True)
 g.map_lower(sns.regplot, scatter_kws={'alpha': .25})
 g.map_upper(reg_coef)
 st.pyplot(g.figure)
 
 # Correlation Over Time
-# Fig 2 - Pair plots w/ Correlation
+# Fig 3 - Pair plots w/ Correlation
+st.write(f"## {selected_target} Correlation Over Time")
+st.write(
+    f"""
+    The plot below shows how the correlation between the four team factors and {selected_target} changes from season to season. 
+    Note that this plot will only display when **more than 1** team is selected. After all, we cannot compute correlation
+    with a single data point. It is likely only useful to view this graphic with `All` teams selected or defined groups
+    of teams (e.g., divisions, conferences, etc.).  
+    """
+)
 filtered_df_fig3, selected_teams_fig3, selected_seasons_fig3 = config_widgets(
     df=df,
     min_season=2002,
     max_season=2024,
-    teams=teams
+    teams=teams,
+    key=3
 )
 corr_data = []
 for s in filtered_df_fig3['season'].unique():
