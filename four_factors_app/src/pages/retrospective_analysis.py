@@ -70,13 +70,13 @@ st.write(
     """
 )
 
-selected_target = st.selectbox(
+selected_target_name = st.selectbox(
     "Choose a target variable",
     ("Wins", "Win %"),
     index=1,
     placeholder="Select target variable..."
 )
-if selected_target == "Wins":
+if selected_target_name == "Wins":
     selected_target = "W"
 else:
     selected_target = "W_PCT"
@@ -141,7 +141,7 @@ selected_features = st.selectbox(
     placeholder="Select a feature set..."
 )
 off_factors = ['EFG_PCT','FTA_RATE','TM_TOV_PCT','OREB_PCT']
-def_factors = ['OPP_EFG_PCT','OPP_FTA_RATE','OPP_TM_TOV_PCT','OPP_OREB_PCT']
+def_factors = ['OPP_EFG_PCT','OPP_FTA_RATE','OPP_TOV_PCT','OPP_OREB_PCT']
 diff_factors = [factor + '_d' for factor in off_factors]
 if selected_features == "Offensive Four Factors Only (4 Features)":
     selected_features = off_factors
@@ -156,7 +156,6 @@ st.write(f"We have selected the following {len(selected_features)} features: ")
 st.write(f"{selected_features}")
 
 model_data = df[[selected_target] + selected_features]
-st.dataframe(model_data.head())
 
 # Linear Regression Output
 X = sm.add_constant(model_data.drop(selected_target, axis=1))
@@ -164,19 +163,60 @@ X = sm.add_constant(model_data.drop(selected_target, axis=1))
 # Fit Linear Model
 model_ff = sm.OLS(endog=model_data[selected_target], exog=X).fit()
 
-# Training Predictions
+# In-Sample Fitted Values
 df['y_pred'] = model_ff.predict()
-df['res'] = df['W_PCT'] - df['y_pred']
+df['res'] = df[selected_target] - df['y_pred']
 
 # Filter
 filtered_preds = df.loc[filtered_df.index, 'y_pred']
 filtered_res = df.loc[filtered_df.index, 'res']
 
 st.write("## Model Output")
-st.write(f"### Estimated Model")
-st.write(rf"$$\hat{{Win \%}} = {model_ff.params[0]:.2f} + {model_ff.params[1]:.2f}\times \text{{EFG\_PCT\_d}} + {model_ff.params[2]:.2f}\times \text{{FTA\_Rate\_d}}+{model_ff.params[3]:.2f}\times \text{{TM\_TOV\_PCT\_d}}+{model_ff.params[4]:.2f}\times \text{{OREB\_PCT\_d}}$$")
+with st.expander(f"Estimated Model"):
+    st.write(model_ff.summary())
 
+with st.expander("Estimated Equation"):
+    factor_param_dict = dict(zip(selected_features, model_ff.params[1:]))
+    selected_target_esc = selected_target.replace("_","\\_")
+    eqn = f"\\hat{{{selected_target_esc}}} = {model_ff.params[0]:.2f}"
+    for key, value in factor_param_dict.items():
+        key_esc = key.replace("_", "\\_")
+        eqn += f" + {value:.2f} \\cdot {key_esc}"
 
+    st.latex(eqn)
+
+with st.expander("Interpretations"):
+    if selected_features == off_factors:
+        st.write("- Intercept does not have a useful interpretation.")
+    if selected_features == def_factors:
+        st.write("- Intercept does not have a useful interpretation.")
+    if selected_features == off_factors + def_factors:
+        st.write("- Intercept does not have a useful interpretation.")
+    else:
+        st.write(f"- For the average team, the expected {selected_target_name.lower()} is {model_ff.params[0]:.2f}.")
+    st.write("While holding all other predictors constant...")
+    for key, value in factor_param_dict.items():
+        if value < 0:
+            direction = "decrease"
+            value = -value
+        else:
+            direction = "increase"
+        st.write(f"- For an increase of 0.01 in {key}, we expect the team's {selected_target_name} to **{direction}** by {value:.2f}%.")
+
+with st.expander("Explained Variation"):
+    st.write(f"**R-Squared**: {model_ff.rsquared*100:.1f}% of the variation in {selected_target_name} is explained by *this* model.")
+    st.write(f"**Adjusted R-Squared**: {model_ff.rsquared_adj*100:.1f}% of the variation in {selected_target_name} is explained by *this* model, accounting for the number of estimated parameters (i.e., model complexity).")
+
+with st.expander("Statistical Significance"):
+    st.write("While there are many issues with p-values, nonetheless, the general interpretation is as follows...")
+    st.write("- Assuming there is no linear relationship between the predictor and target (in a model with other predictors), the probability of observing what we've observed in our data (or more extreme) is the p-value.")
+    st.write("- If this p-value is very small (i.e., less than a prespecified signficance level), then it's highly unlikely that our initial assumption of no linear relationship was correct in the first place. In this case, we would 'reject the null hypothesis'.")
+    st.write("For the coefficients in our model...")
+    non_sig_idx = np.where((model_ff.pvalues[1:] >= .05)==True)[0]
+    if len(non_sig_idx) > 0:
+        st.write(f"- The predictors with coefficients that are not significantly different from zero: {selected_features[non_sig_idx]}")
+    else:
+        st.write(f"- All coefficients are signficantly different from zero (i.e., a significant linear relationship between the predictor and target exists given the other predictors in the model).")
 # Visualizations
 teams = ['All'] + list(df['TEAM_NAME'].unique())
 selected_teams = st.sidebar.multiselect("Select Teams", options=teams, default='All')
